@@ -38,25 +38,96 @@ CHAT_WIDGETS = {
 AI_CRAWLERS = ["GPTBot", "ClaudeBot", "Google-Extended", "PerplexityBot", "CCBot", "Bytespider"]
 
 
-def check_ai(page: Response | None) -> list[Finding]:
+# Public AI API keys. Prefixes are specific enough to avoid false hits.
+AI_KEY_PATTERNS = {
+    "OpenAI": r"\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{20,}T3BlbkFJ[A-Za-z0-9_-]{20,}\b|\bsk-(?:proj|svcacct)-[A-Za-z0-9_-]{40,}\b",
+    "Anthropic": r"\bsk-ant-(?:api|admin)\d{2}-[A-Za-z0-9_-]{80,}\b",
+    "Google AI (Gemini)": r"\bAIza[0-9A-Za-z_-]{35}\b",
+    "Groq": r"\bgsk_[A-Za-z0-9]{48,}\b",
+    "Hugging Face": r"\bhf_[A-Za-z]{34,}\b",
+    "Replicate": r"\br8_[A-Za-z0-9]{37,}\b",
+}
+
+
+def widgets_in(text: str) -> list[str]:
+    return [name for name, pats in CHAT_WIDGETS.items()
+            if any(re.search(p, text, re.I) for p in pats)]
+
+
+def check_ai(page: Response | None, *, browser: bool = False) -> list[Finding]:
     out: list[Finding] = []
     if page is None:
         return out
-    found = [name for name, pats in CHAT_WIDGETS.items()
-             if any(re.search(p, page.body, re.I) for p in pats)]
+    found = set(widgets_in(page.body))
+    scripts_text = page.body
+    method = "page HTML"
+    pages_seen = [page.url]
+    if browser:
+        try:
+            from . import browser as br
+
+            if not br.available():
+                raise RuntimeError("Playwright is not installed (pip install 'checkup-scanner[browser]' "
+                                   "&& playwright install chromium)")
+            rendered = br.render_pages(page.url)
+            found |= set(widgets_in("\n".join(rendered["requests"])))
+            found |= set(widgets_in(rendered["html"]))
+            found |= set(br.widget_names_from_globals(rendered["globals"]))
+            scripts_text += rendered["html"]
+            method = "a real browser"
+            pages_seen = rendered["pages"] or pages_seen
+            for err in rendered["errors"]:
+                out.append(Finding(AI, "info", "Browser couldn't load a page", err))
+        except Exception as err:  # noqa: BLE001
+            out.append(Finding(AI, "info", "Browser check skipped", str(err)[:200]))
+    pages_note = ", ".join(pages_seen)
     if found:
-        out.append(Finding(AI, "warn", "Chat widget on the website: " + ", ".join(found),
-                           "If it answers with AI, it can be tested for leaking data, "
-                           "being talked out of its rules, or promising refunds or prices. "
-                           "This scan only detects it; it does not talk to it.",
+        out.append(Finding(AI, "warn", "Chat widget on the website: " + ", ".join(sorted(found)),
+                           f"Found using {method} on: {pages_note}. If it answers with AI, it can "
+                           "be tested for leaking data, being talked out of its rules, or "
+                           "promising refunds or prices. This scan only detects it; it does "
+                           "not talk to it.",
                            "Ask the vendor what data the bot can see and whether its AI "
                            "answers can be limited. A chatbot test checks it properly."))
     else:
-        out.append(Finding(AI, "info", "No known chat widget on the homepage",
-                           "Widgets loaded later, or only on other pages, aren't seen."))
+        out.append(Finding(AI, "info", "No known chat widget found",
+                           f"Checked with {method} on: {pages_note}."
+                           + ("" if browser else " Widgets added later by a script aren't seen "
+                              "without --browser.")))
+    out.extend(_ai_keys(scripts_text, page))
     base = "/".join(page.url.split("/")[:3])
     out.extend(_robots(base))
     return out
+
+
+def _ai_keys(text: str, page: Response) -> list[Finding]:
+    """Look for AI API keys in the page and its own (same-site) scripts."""
+    srcs = re.findall(r'<script[^>]+src=["\']([^"\']+)', page.body, re.I)
+    base = "/".join(page.url.split("/")[:3])
+    host = page.url.split("/")[2]
+    blobs = [text]
+    for src in srcs[:15]:
+        url = src if src.startswith("http") else (base + src if src.startswith("/") else None)
+        if not url or host not in url.split("/")[2]:
+            continue
+        try:
+            blobs.append(fetch(url, timeout=10, max_bytes=2_000_000).body)
+        except (urllib.error.URLError, OSError):
+            continue
+    hits = []
+    for vendor, pat in AI_KEY_PATTERNS.items():
+        for blob in blobs:
+            m = re.search(pat, blob)
+            if m:
+                key = m.group(0)
+                hits.append(f"{vendor} ({key[:8]}…{key[-4:]})")
+                break
+    if not hits:
+        return [Finding(AI, "pass", "No AI API keys in the website's code",
+                        f"Checked the page and {len(blobs) - 1} of its scripts.")]
+    return [Finding(AI, "fail", "AI API key exposed in the website's code", ", ".join(hits),
+                    "Anyone can copy this key and run up your AI bill or read your data. "
+                    "Revoke it in the provider's dashboard now, then move AI calls to a server.")]
 
 
 def _robots(base: str) -> list[Finding]:

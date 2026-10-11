@@ -7,7 +7,8 @@ EMAIL = "Email spoofing"
 WEB = "Website security"
 SOFTWARE = "Software and exposure"
 AI = "AI and chatbots"
-AREAS = [EMAIL, WEB, SOFTWARE, AI]
+BREACH = "Data breaches"
+AREAS = [EMAIL, WEB, SOFTWARE, BREACH, AI]
 
 ORDER = {"info": 0, "pass": 1, "warn": 2, "fail": 3}
 GRADE = {0: "grey", 1: "green", 2: "yellow", 3: "red"}

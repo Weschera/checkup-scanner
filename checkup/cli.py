@@ -9,6 +9,7 @@ from pathlib import Path
 
 from . import __version__
 from .ai_checks import check_ai
+from .breach_checks import check_breaches
 from .email_checks import check_email
 from .model import AREAS, Finding, area_grade
 from .net import set_resolver
@@ -27,7 +28,8 @@ def normalize(target: str) -> str:
     return d
 
 
-def scan(domain: str, *, authorized_by: str | None = None, log=print) -> tuple[dict, list[Finding]]:
+def scan(domain: str, *, authorized_by: str | None = None, browser: bool = False,
+         log=print) -> tuple[dict, list[Finding]]:
     findings: list[Finding] = []
     log("· email (SPF, DMARC, DKIM)")
     findings += check_email(domain)
@@ -36,8 +38,10 @@ def scan(domain: str, *, authorized_by: str | None = None, log=print) -> tuple[d
     findings += web
     log("· software and exposure" + (" (active probes on)" if authorized_by else ""))
     findings += check_software(domain, page, authorized=bool(authorized_by))
-    log("· AI and chatbots")
-    findings += check_ai(page)
+    log("· data breaches")
+    findings += check_breaches(domain)
+    log("· AI and chatbots" + (" (browser)" if browser else ""))
+    findings += check_ai(page, browser=browser)
     meta = {
         "domain": domain,
         "scanned_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
@@ -59,6 +63,10 @@ def main(argv: list[str] | None = None) -> int:
                          "(exposed-file probes). Without it, only public information is read.")
     ap.add_argument("--format", default="md,html,json",
                     help="comma list of md, html, json (default: all)")
+    ap.add_argument("--browser", action="store_true",
+                    help="load pages in headless Chromium to find chat widgets added by "
+                         "scripts (needs: pip install 'checkup-scanner[browser]' and "
+                         "playwright install chromium)")
     ap.add_argument("--dns", choices=["cloudflare", "google"], default="cloudflare",
                     help="DNS-over-HTTPS service. Answers can be cached for up to an "
                          "hour after a DNS change; switch services to re-check sooner.")
@@ -69,7 +77,7 @@ def main(argv: list[str] | None = None) -> int:
     domain = normalize(args.domain)
     log = (lambda *_: None) if args.quiet else (lambda m: print(m, file=sys.stderr))
     log(f"Scanning {domain}")
-    meta, findings = scan(domain, authorized_by=args.authorized, log=log)
+    meta, findings = scan(domain, authorized_by=args.authorized, browser=args.browser, log=log)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

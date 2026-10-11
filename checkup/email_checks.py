@@ -105,14 +105,17 @@ def _dmarc(domain: str, sends_mail: bool = True) -> list[Finding]:
 
 
 def _dkim(domain: str) -> Finding:
-    found = []
-    for sel in DKIM_SELECTORS:
+    from concurrent.futures import ThreadPoolExecutor
+
+    def has_key(sel: str) -> bool:
         name = f"{sel}._domainkey.{domain}"
         try:
-            if any("p=" in t for t in dns_txt(name)) or dns_query(name, "CNAME"):
-                found.append(sel)
+            return any("p=" in t for t in dns_txt(name)) or bool(dns_query(name, "CNAME"))
         except (DNSError, OSError):
-            continue
+            return False
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        found = [sel for sel, ok in zip(DKIM_SELECTORS, pool.map(has_key, DKIM_SELECTORS)) if ok]
     if found:
         return Finding(EMAIL, "pass", "DKIM key found", "Selectors: " + ", ".join(found))
     return Finding(EMAIL, "info", "No DKIM key at common selectors",

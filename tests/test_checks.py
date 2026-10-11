@@ -89,7 +89,58 @@ def test_detects_chat_widget(monkeypatch):
 def test_no_widget_is_info(monkeypatch):
     monkeypatch.setattr(ai_checks, "_robots", lambda base: [])
     page = Response("https://shop.com/", 200, {}, "<html>hello</html>")
-    assert titles(ai_checks.check_ai(page))["No known chat widget on the homepage"] == "info"
+    assert titles(ai_checks.check_ai(page))["No known chat widget found"] == "info"
+
+
+def test_exposed_ai_key_fails(monkeypatch):
+    monkeypatch.setattr(ai_checks, "_robots", lambda base: [])
+    key = "sk-proj-" + "A1b2C3d4E5" * 5
+    page = Response("https://shop.com/", 200, {}, f'<script>const k="{key}"</script>')
+    t = titles(ai_checks.check_ai(page))
+    assert t["AI API key exposed in the website's code"] == "fail"
+
+
+def test_key_check_fetches_only_same_site_scripts(monkeypatch):
+    monkeypatch.setattr(ai_checks, "_robots", lambda base: [])
+    fetched = []
+    monkeypatch.setattr(ai_checks, "fetch", lambda url, **kw: fetched.append(url) or Response(url, 200, {}, ""))
+    page = Response("https://shop.com/", 200, {},
+                    '<script src="/app.js"></script><script src="https://cdn.other.com/x.js"></script>')
+    assert titles(ai_checks.check_ai(page))["No AI API keys in the website's code"] == "pass"
+    assert fetched == ["https://shop.com/app.js"]
+
+
+def test_browser_widgets_found_from_requests(monkeypatch):
+    from checkup import browser as br
+    monkeypatch.setattr(ai_checks, "_robots", lambda base: [])
+    monkeypatch.setattr(br, "available", lambda: True)
+    monkeypatch.setattr(br, "render_pages", lambda url: {
+        "pages": [url], "requests": ["https://widget.intercom.io/widget/abc"],
+        "globals": ["Tawk_API"], "html": "", "errors": []})
+    page = Response("https://shop.com/", 200, {}, "<html>gtm only</html>")
+    t = titles(ai_checks.check_ai(page, browser=True))
+    assert t["Chat widget on the website: Intercom, tawk.to"] == "warn"
+
+
+def test_breaches_without_key(monkeypatch):
+    from checkup import breach_checks
+    monkeypatch.setattr(breach_checks, "_get", lambda path, key=None: (200, [
+        {"Title": "Shop", "BreachDate": "2020-01-01", "PwnCount": 1234}]))
+    t = titles(breach_checks.check_breaches("shop.com", api_key=None))
+    assert t["This website has had a data breach"] == "fail"
+    assert t["Staff email breach check not run"] == "info"
+
+
+def test_breached_staff_emails_with_key(monkeypatch):
+    from checkup import breach_checks
+    def get(path, key=None):
+        if path.startswith("/breaches"):
+            return 200, []
+        return 200, {"owner": ["Adobe", "Canva"], "info": ["LinkedIn"]}
+    monkeypatch.setattr(breach_checks, "_get", get)
+    t = titles(breach_checks.check_breaches("shop.com", api_key="k"))
+    assert t["No known breach of this website itself"] == "pass"
+    assert t["2 staff email addresses found in data breaches"] == "fail"
 
 
 def test_old_jquery_and_version_banner():
