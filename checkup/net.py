@@ -92,7 +92,7 @@ def set_resolver(name: str) -> None:
     record's TTL, so after a DNS change try the other one."""
     global DOH_URL
     DOH_URL = DOH_SERVERS[name]
-RTYPES = {"A": 1, "CNAME": 5, "MX": 15, "TXT": 16, "AAAA": 28}
+RTYPES = {"A": 1, "NS": 2, "CNAME": 5, "MX": 15, "TXT": 16, "AAAA": 28}
 
 
 class DNSError(Exception):
