@@ -11,6 +11,7 @@ from . import __version__
 from .ai_checks import check_ai
 from .email_checks import check_email
 from .model import AREAS, Finding, area_grade
+from .net import set_resolver
 from .report import DOT, to_html, to_json, to_markdown
 from .software_checks import check_software
 from .web_checks import check_web
@@ -58,9 +59,13 @@ def main(argv: list[str] | None = None) -> int:
                          "(exposed-file probes). Without it, only public information is read.")
     ap.add_argument("--format", default="md,html,json",
                     help="comma list of md, html, json (default: all)")
+    ap.add_argument("--dns", choices=["cloudflare", "google"], default="cloudflare",
+                    help="DNS-over-HTTPS service. Answers can be cached for up to an "
+                         "hour after a DNS change; switch services to re-check sooner.")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args(argv)
 
+    set_resolver(args.dns)
     domain = normalize(args.domain)
     log = (lambda *_: None) if args.quiet else (lambda m: print(m, file=sys.stderr))
     log(f"Scanning {domain}")

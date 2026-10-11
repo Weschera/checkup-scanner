@@ -80,7 +80,18 @@ def fetch_json(url: str, timeout: float = 20):
 
 
 # DNS over HTTPS, so the scanner needs no resolver library.
-DOH_URL = "https://cloudflare-dns.com/dns-query"
+DOH_SERVERS = {
+    "cloudflare": "https://cloudflare-dns.com/dns-query",
+    "google": "https://dns.google/resolve",
+}
+DOH_URL = DOH_SERVERS["cloudflare"]
+
+
+def set_resolver(name: str) -> None:
+    """Pick the DNS-over-HTTPS service. Resolvers cache answers for up to the
+    record's TTL, so after a DNS change try the other one."""
+    global DOH_URL
+    DOH_URL = DOH_SERVERS[name]
 RTYPES = {"A": 1, "CNAME": 5, "MX": 15, "TXT": 16, "AAAA": 28}
 
 

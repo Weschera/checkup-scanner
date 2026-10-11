@@ -57,12 +57,13 @@ Or without installing: `python -m checkup example.com`.
 ## Options
 
 ```
-checkup DOMAIN [-o FOLDER] [--format md,html,json] [--authorized NAME] [-q]
+checkup DOMAIN [-o FOLDER] [--format md,html,json] [--authorized NAME] [--dns cloudflare|google] [-q]
 ```
 
 - `-o`: where reports go (default `./reports`)
 - `--format`: any of `md`, `html`, `json` (default: all three)
 - `--authorized NAME`: turns on active checks, and records who gave permission. See below.
+- `--dns`: which DNS-over-HTTPS service to use (default `cloudflare`). Lookups can be cached for up to an hour after a DNS change, so use the other one to re-check a fix sooner.
 - Exit code is `1` if anything is red, so it can run in a script.
 
 ## Passive by default

@@ -31,7 +31,7 @@ def check_email(domain: str) -> list[Finding]:
         txt = []
     spf = [t for t in txt if t.lower().startswith("v=spf1")]
     out.extend(_spf(spf, bool(mx)))
-    out.extend(_dmarc(domain))
+    out.extend(_dmarc(domain, sends_mail=bool(mx)))
     if mx:
         out.append(_dkim(domain))
         hosts = ", ".join(sorted({m.split()[-1].rstrip('.') for m in mx}))
@@ -70,7 +70,7 @@ def _spf(records: list[str], has_mx: bool) -> list[Finding]:
     return out
 
 
-def _dmarc(domain: str) -> list[Finding]:
+def _dmarc(domain: str, sends_mail: bool = True) -> list[Finding]:
     try:
         recs = [t for t in dns_txt(f"_dmarc.{domain}") if t.lower().startswith("v=dmarc1")]
     except (DNSError, OSError) as err:
@@ -97,7 +97,8 @@ def _dmarc(domain: str) -> list[Finding]:
                        "Fake mail is reported but still delivered. " + rec,
                        "Once reports show your real senders pass, move to p=quarantine, then p=reject.")]
     if "rua" not in tags:
-        out.append(Finding(EMAIL, "warn", "DMARC sends no reports",
+        out.append(Finding(EMAIL, "warn" if sends_mail or policy != "reject" else "info",
+                           "DMARC sends no reports",
                            "Without rua= you can't see who is sending as your domain.",
                            "Add rua=mailto:<an inbox or a free DMARC report service>."))
     return out

@@ -138,3 +138,22 @@ def test_reports_render():
     html = to_html(meta, findings)
     assert "&lt;x&gt;" in html and "<x>" not in html
     assert '"Email spoofing": "red"' in to_json(meta, findings)
+
+
+def test_no_mail_domain_locked_down_is_green(monkeypatch):
+    dns_stub(monkeypatch, {
+        ("shop.com", "TXT"): ["v=spf1 -all"],
+        ("_dmarc.shop.com", "TXT"): ["v=DMARC1; p=reject;"],
+    })
+    findings = email_checks.check_email("shop.com")
+    assert titles(findings)["DMARC sends no reports"] == "info"
+    assert area_grade(findings, EMAIL) == "green"
+
+
+def test_sending_domain_without_reports_warns(monkeypatch):
+    dns_stub(monkeypatch, {
+        ("shop.com", "MX"): ["1 smtp.google.com."],
+        ("shop.com", "TXT"): ["v=spf1 include:_spf.google.com -all"],
+        ("_dmarc.shop.com", "TXT"): ["v=DMARC1; p=reject;"],
+    })
+    assert titles(email_checks.check_email("shop.com"))["DMARC sends no reports"] == "warn"
